@@ -73,10 +73,10 @@ type testRemoteState struct {
 	shell Remote
 }
 
-func (state *testRemoteState) handler(kind int, result string) error {
-	if kind == Stdout {
+func (state *testRemoteState) handler(kind MessageType, result string) error {
+	if kind == StdOut {
 		result = "OUT: " + result
-	} else if kind == Stderr {
+	} else if kind == StdErr {
 		result = "ERR: " + result
 	}
 

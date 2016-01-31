@@ -25,10 +25,10 @@ type testShellState struct {
 	shell shell
 }
 
-func (state *testShellState) handler(kind int, result string) error {
-	if kind == Stdout {
+func (state *testShellState) handler(kind MessageType, result string) error {
+	if kind == StdOut {
 		result = "OUT: " + result
-	} else if kind == Stderr {
+	} else if kind == StdErr {
 		result = "ERR: " + result
 	}
 
@@ -105,7 +105,7 @@ func TestShellReturnsExitStatus(test *testing.T) {
 	assert.Equal(test, 1, status)
 }
 
-func TestShellSendsStderrToHandler(test *testing.T) {
+func TestShellSendsStdErrToHandler(test *testing.T) {
 	state := newTestShellState(0)
 	state.run("COMMAND", 1, func() {
 		state.stderr.Write([]byte("MSG"))
@@ -116,7 +116,7 @@ func TestShellSendsStderrToHandler(test *testing.T) {
 	assert.Equal(test, "ERR: MSG", state.args[0])
 }
 
-func TestShellSendsStdoutToHandler(test *testing.T) {
+func TestShellSendsStdOutToHandler(test *testing.T) {
 	state := newTestShellState(0)
 	state.run("COMMAND", 1, func() {
 		state.stdout.Write([]byte("MSG"))
@@ -127,7 +127,7 @@ func TestShellSendsStdoutToHandler(test *testing.T) {
 	assert.Equal(test, "OUT: MSG", state.args[0])
 }
 
-func TestShellConcatsStdoutMessages(test *testing.T) {
+func TestShellConcatsStdOutMessages(test *testing.T) {
 	state := newTestShellState(0)
 	state.run("COMMAND", 1, func() {
 		state.stdout.Write([]byte("MSG1"))
@@ -139,7 +139,7 @@ func TestShellConcatsStdoutMessages(test *testing.T) {
 	assert.Equal(test, "OUT: MSG1MSG2", state.args[0])
 }
 
-func TestSendsTwoStdoutMessagesToHandler(test *testing.T) {
+func TestSendsTwoStdOutMessagesToHandler(test *testing.T) {
 	state := newTestShellState(0)
 	state.run("COMMAND", 1, func() {
 		state.stdout.Write([]byte("MSG1\nMSG2\n__SHELL_EXIT_STATUS_0__"))
@@ -161,7 +161,7 @@ func TestDetectsStatusFromTwoDifferentMessages(test *testing.T) {
 	assert.Equal(test, 1, status)
 }
 
-func TestIgnoresStuffInStdoutAfterComplete(test *testing.T) {
+func TestIgnoresStuffInStdOutAfterComplete(test *testing.T) {
 	state := newTestShellState(0)
 	state.run("COMMAND", 1, func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
@@ -172,7 +172,7 @@ func TestIgnoresStuffInStdoutAfterComplete(test *testing.T) {
 	assert.Equal(test, 0, len(state.args))
 }
 
-func TestIgnoresStuffInStderrAfterComplete(test *testing.T) {
+func TestIgnoresStuffInStdErrAfterComplete(test *testing.T) {
 	state := newTestShellState(0)
 	state.run("COMMAND", 1, func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
@@ -212,7 +212,7 @@ func TestRunsTwoCommands(test *testing.T) {
 	assert.Equal(test, 2, len(state.args))
 }
 
-func TestReceivesStderrAfterStdout(test *testing.T) {
+func TestReceivesStdErrAfterStdOut(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
 	state.run("COMMAND1", 1, func() {
 		state.stdout.Write([]byte("MESSAGE1"))
@@ -229,7 +229,7 @@ func TestReceivesStderrAfterStdout(test *testing.T) {
 	assert.Equal(test, "ERR: MESSAGE2", state.args[1])
 }
 
-func TestReturnsErrorOnStdoutError(test *testing.T) {
+func TestReturnsErrorOnStdOutError(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
 	_, err := state.run("COMMAND", 1, func() {
 		state.stdout.Close()
@@ -238,7 +238,7 @@ func TestReturnsErrorOnStdoutError(test *testing.T) {
 	assert.Error(test, err)
 }
 
-func TestReturnsErrorOnStderrError(test *testing.T) {
+func TestReturnsErrorOnStdErrError(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
 	_, err := state.run("COMMAND", 1, func() {
 		state.stderr.Close()

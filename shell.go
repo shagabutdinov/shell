@@ -7,16 +7,18 @@ import (
 	"strings"
 )
 
+type MessageType int
+
 const (
-	Stdout = iota
+	StdOut MessageType = iota
 	stdoutComplete
-	Stderr
+	StdErr
 	stderrComplete
 	fatal
 )
 
 type message struct {
-	kind    int
+	kind    MessageType
 	message string
 	err     error
 }
@@ -31,13 +33,13 @@ type shell struct {
 }
 
 type Shell interface {
-	Run(command string, handler func(int, string) error) (int, error)
+	Run(command string, handler func(MessageType, string) error) (int, error)
 	Close() error
 }
 
 func (shell shell) Run(
 	command string,
-	handler func(int, string) error,
+	handler func(MessageType, string) error,
 ) (int, error) {
 	query := strings.TrimRight(command, "\n") + "\n" +
 		"echo -n __SHELL_EXIT_STATUS_$?__ | tee /dev/stderr\n"
@@ -52,11 +54,11 @@ func (shell shell) Run(
 
 func (shell shell) start() {
 	go func() {
-		shell.read(shell.stdout, Stdout, stdoutComplete)
+		shell.read(shell.stdout, StdOut, stdoutComplete)
 	}()
 
 	go func() {
-		shell.read(shell.stderr, Stderr, stderrComplete)
+		shell.read(shell.stderr, StdErr, stderrComplete)
 	}()
 }
 
@@ -64,7 +66,11 @@ var (
 	exitStatusRegexp = regexp.MustCompile(`__SHELL_EXIT_STATUS_(\w*)__`)
 )
 
-func (shell shell) read(reader io.Reader, kind int, comlete int) {
+func (shell shell) read(
+	reader io.Reader,
+	kind MessageType,
+	comlete MessageType,
+) {
 	buffer := ""
 
 	for {
@@ -106,7 +112,7 @@ func (shell shell) read(reader io.Reader, kind int, comlete int) {
 	}
 }
 
-func (shell shell) wait(handler func(int, string) error) (int, error) {
+func (shell shell) wait(handler func(MessageType, string) error) (int, error) {
 	result := "-1"
 	var handlerErr error
 
@@ -139,11 +145,11 @@ func (shell shell) wait(handler func(int, string) error) (int, error) {
 			continue
 		}
 
-		if message.kind == Stdout && stdoutCompleted {
+		if message.kind == StdOut && stdoutCompleted {
 			continue
 		}
 
-		if message.kind == Stderr && stderrCompleted {
+		if message.kind == StdErr && stderrCompleted {
 			continue
 		}
 

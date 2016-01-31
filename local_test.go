@@ -24,10 +24,10 @@ type testLocalState struct {
 	shell Local
 }
 
-func (state *testLocalState) handler(kind int, result string) error {
-	if kind == Stdout {
+func (state *testLocalState) handler(kind MessageType, result string) error {
+	if kind == StdOut {
 		result = "OUT: " + result
-	} else if kind == Stderr {
+	} else if kind == StdErr {
 		result = "ERR: " + result
 	}
 
