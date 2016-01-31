@@ -39,20 +39,6 @@ bBcn9sw/WgAgQQy+8UYH69V0SsY0LwWhVbi3nX9g+H/TAc9iZYffEQ==
 `
 )
 
-var (
-	testRemoteShell *Remote = nil
-)
-
-func newTestRemoteShell() *Remote {
-	remote, err := NewRemote(getTestRemoteConfig())
-
-	if err != nil {
-		panic(err)
-	}
-
-	return &remote
-}
-
 func getTestRemoteConfig() RemoteConfig {
 	key, err := ssh.ParsePrivateKey([]byte(testRemotePrivateKey))
 	if err != nil {
@@ -70,7 +56,7 @@ func getTestRemoteConfig() RemoteConfig {
 
 type testRemoteState struct {
 	args  []string
-	shell Remote
+	shell *Remote
 }
 
 func (state *testRemoteState) handler(kind MessageType, result string) error {
@@ -85,16 +71,18 @@ func (state *testRemoteState) handler(kind MessageType, result string) error {
 }
 
 func newTestRemoteState() testRemoteState {
-	if testRemoteShell == nil {
-		testRemoteShell = newTestRemoteShell()
+	remote, err := NewRemote(getTestRemoteConfig())
+	if err != nil {
+		panic(err)
 	}
 
-	state := testRemoteState{shell: *testRemoteShell}
+	state := testRemoteState{shell: remote}
 	return state
 }
 
 func TestRemoteHostNameIsValid(test *testing.T) {
 	state := newTestRemoteState()
+	defer state.shell.Close()
 
 	status, err := state.shell.Run("cd /etc", state.handler)
 	assert.NoError(test, err)
@@ -108,6 +96,7 @@ func TestRemoteHostNameIsValid(test *testing.T) {
 
 func TestRemoteReturnsError(test *testing.T) {
 	state := newTestRemoteState()
+	defer state.shell.Close()
 
 	status, err := state.shell.Run("echo ERROR 1>&2 && false", state.handler)
 	assert.NoError(test, err)
@@ -117,6 +106,8 @@ func TestRemoteReturnsError(test *testing.T) {
 
 func TestRemoteExitsWithoutError(test *testing.T) {
 	shell, err := NewRemote(getTestRemoteConfig())
+	defer shell.Close()
+
 	assert.NoError(test, err)
 	err = shell.Close()
 	assert.NoError(test, err)

@@ -1,12 +1,12 @@
-app:
+app_shell_local:
   container_name: app.shell.local
   dockerfile: ./config/local/app.dockerfile
   build: ./../..
   environment: ['GO_PATH=/app']
   volumes: ['./../..:/app/shell']
-  links: ['ssh:ssh.shell.local']
+  links: ['ssh_shell_local:ssh.shell.local']
 
-ssh:
+ssh_shell_local:
   container_name: ssh.shell.local
   dockerfile: ./config/local/ssh.dockerfile
   build: ./../..

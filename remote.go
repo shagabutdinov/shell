@@ -25,7 +25,7 @@ type RemoteConfig struct {
 	LineLimit int
 }
 
-func NewRemote(config RemoteConfig) (Remote, error) {
+func NewRemote(config RemoteConfig) (*Remote, error) {
 	address := config.Address
 	user := "root"
 	if strings.Contains(address, "@") {
@@ -41,10 +41,10 @@ func NewRemote(config RemoteConfig) (Remote, error) {
 
 	client, err := ssh.Dial("tcp", address, clientConfig)
 	if err != nil {
-		return Remote{}, err
+		return nil, err
 	}
 
-	shell := Remote{client: client}
+	shell := &Remote{client: client}
 
 	shell.limit = config.LineLimit
 	shell.messages = make(chan message, 4096)
@@ -86,7 +86,7 @@ type Remote struct {
 	session *ssh.Session
 }
 
-func (shell Remote) Close() error {
+func (shell *Remote) Close() error {
 	closeErr := shell.close()
 	sessionCloseErr := shell.session.Close()
 	clientCloseErr := shell.client.Close()

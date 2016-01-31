@@ -6,22 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var (
-	testLocalShell *Local = nil
-)
-
-func newTestLocalShell() *Local {
-	local, err := NewLocal(LocalConfig{})
-	if err != nil {
-		panic(err)
-	}
-
-	return &local
-}
-
 type testLocalState struct {
 	args  []string
-	shell Local
+	shell *Local
 }
 
 func (state *testLocalState) handler(kind MessageType, result string) error {
@@ -36,16 +23,17 @@ func (state *testLocalState) handler(kind MessageType, result string) error {
 }
 
 func newTestLocalState() testLocalState {
-	if testLocalShell == nil {
-		testLocalShell = newTestLocalShell()
+	local, err := NewLocal(LocalConfig{})
+	if err != nil {
+		panic(err)
 	}
 
-	state := testLocalState{shell: *testLocalShell}
-	return state
+	return testLocalState{shell: local}
 }
 
 func TestLocalRunsCommand(test *testing.T) {
 	state := newTestLocalState()
+	defer state.shell.Close()
 
 	status, err := state.shell.Run("cd /var/lib", state.handler)
 	assert.NoError(test, err)
@@ -59,6 +47,8 @@ func TestLocalRunsCommand(test *testing.T) {
 
 func TestLocalRunsErrorCommand(test *testing.T) {
 	state := newTestLocalState()
+	defer state.shell.Close()
+
 	status, err := state.shell.Run("echo -n TEST 1>&2 && false", state.handler)
 	assert.NoError(test, err)
 	assert.Equal(test, 1, status)
@@ -67,6 +57,8 @@ func TestLocalRunsErrorCommand(test *testing.T) {
 
 func TestLocalExitsWithoutError(test *testing.T) {
 	shell, err := NewLocal(LocalConfig{})
+	defer shell.Close()
+
 	assert.NoError(test, err)
 	err = shell.Close()
 	assert.NoError(test, err)
@@ -74,6 +66,8 @@ func TestLocalExitsWithoutError(test *testing.T) {
 
 func TestLocalExitsWithoutErrorWhileExecutingCommand(test *testing.T) {
 	shell, err := NewLocal(LocalConfig{})
+	defer shell.Close()
+
 	assert.NoError(test, err)
 	go func() { shell.Run("sleep 100", nil) }()
 	err = shell.Close()

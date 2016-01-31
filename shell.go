@@ -30,6 +30,7 @@ type shell struct {
 	limit  int
 
 	messages chan message
+	closed   bool
 }
 
 type Shell interface {
@@ -37,7 +38,7 @@ type Shell interface {
 	Close() error
 }
 
-func (shell shell) Run(
+func (shell *shell) Run(
 	command string,
 	handler func(MessageType, string) error,
 ) (int, error) {
@@ -52,7 +53,7 @@ func (shell shell) Run(
 	return result, err
 }
 
-func (shell shell) start() {
+func (shell *shell) start() {
 	go func() {
 		shell.read(shell.stdout, StdOut, stdoutComplete)
 	}()
@@ -66,7 +67,7 @@ var (
 	exitStatusRegexp = regexp.MustCompile(`__SHELL_EXIT_STATUS_(\w*)__`)
 )
 
-func (shell shell) read(
+func (shell *shell) read(
 	reader io.Reader,
 	kind MessageType,
 	comlete MessageType,
@@ -76,6 +77,10 @@ func (shell shell) read(
 	for {
 		line := make([]byte, 1024)
 		count, err := reader.Read(line)
+
+		if shell.closed {
+			break
+		}
 
 		if err != nil {
 			shell.messages <- message{fatal, "", err}
@@ -110,9 +115,10 @@ func (shell shell) read(
 			buffer = buffer[len(buffer)-shell.limit:]
 		}
 	}
+
 }
 
-func (shell shell) wait(handler func(MessageType, string) error) (int, error) {
+func (shell *shell) wait(handler func(MessageType, string) error) (int, error) {
 	result := "-1"
 	var handlerErr error
 
@@ -120,7 +126,11 @@ func (shell shell) wait(handler func(MessageType, string) error) (int, error) {
 	stderrCompleted := false
 
 	for {
-		message := <-shell.messages
+		message, ok := <-shell.messages
+		if !ok {
+			break
+		}
+
 		if message.kind == fatal || message.err != nil {
 			return -1, message.err
 		}
@@ -170,6 +180,8 @@ func (shell shell) wait(handler func(MessageType, string) error) (int, error) {
 }
 
 func (shell *shell) close() error {
+	shell.closed = true
+
 	_, err := shell.stdin.Write([]byte("exit"))
 	if err != nil {
 		return err
@@ -178,6 +190,8 @@ func (shell *shell) close() error {
 	stdinErr := shell.stdin.Close()
 	stderrErr := shell.stdout.Close()
 	stdoutErr := shell.stderr.Close()
+
+	close(shell.messages)
 
 	if stdinErr != nil {
 		return stdinErr

@@ -13,6 +13,20 @@ type testShellResult struct {
 	err    error
 }
 
+func newTestShellState(limit int) testShellState {
+	shell := &shell{messages: make(chan message, 4096), limit: limit}
+	state := testShellState{result: make(chan testShellResult, 1024)}
+
+	state.stdin, shell.stdin = io.Pipe()
+	shell.stdout, state.stdout = io.Pipe()
+	shell.stderr, state.stderr = io.Pipe()
+
+	state.shell = shell
+	shell.start()
+
+	return state
+}
+
 type testShellState struct {
 	stdin  io.ReadCloser
 	stdout io.WriteCloser
@@ -22,7 +36,7 @@ type testShellState struct {
 	args   []string
 	result chan testShellResult
 
-	shell shell
+	shell *shell
 }
 
 func (state *testShellState) handler(kind MessageType, result string) error {
@@ -38,7 +52,6 @@ func (state *testShellState) handler(kind MessageType, result string) error {
 
 func (state *testShellState) run(
 	command string,
-	readCount int,
 	callback func(),
 ) (int, error) {
 	go func() {
@@ -46,10 +59,16 @@ func (state *testShellState) run(
 		state.result <- testShellResult{status, err}
 	}()
 
-	for index := 0; index < readCount; index += 1 {
-		bytes := make([]byte, 1024)
-		state.stdin.Read(bytes)
-	}
+	go func() {
+		for {
+			bytes := make([]byte, 1024)
+			_, err := state.stdin.Read(bytes)
+			if err != nil {
+				break
+			}
+		}
+
+	}()
 
 	callback()
 
@@ -57,25 +76,12 @@ func (state *testShellState) run(
 	return result.status, result.err
 }
 
-func newTestShellState(limit int) testShellState {
-	shell := shell{messages: make(chan message, 4096), limit: limit}
-	state := testShellState{result: make(chan testShellResult, 1024)}
-
-	state.stdin, shell.stdin = io.Pipe()
-	shell.stdout, state.stdout = io.Pipe()
-	shell.stderr, state.stderr = io.Pipe()
-
-	state.shell = shell
-	shell.start()
-
-	return state
-}
-
 func TestShellSendsCommandToStdin(test *testing.T) {
 	result := make([]byte, 1024)
 	length := 0
 	state := newTestShellState(0)
-	state.run("COMMAND\n\n", 0, func() {
+	defer state.shell.close()
+	state.run("COMMAND\n\n", func() {
 		length, _ = state.stdin.Read(result)
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_0__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_0__"))
@@ -85,9 +91,21 @@ func TestShellSendsCommandToStdin(test *testing.T) {
 	assert.Equal(test, expected, string(result[:length]))
 }
 
+func TestShellClosesNormally(test *testing.T) {
+	state := newTestShellState(0)
+	state.run("COMMAND\n\n", func() {
+		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_0__"))
+		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_0__"))
+	})
+
+	err := state.shell.close()
+	assert.NoError(test, err)
+}
+
 func TestShellReturnsNoErrorOnRunningCommand(test *testing.T) {
 	state := newTestShellState(0)
-	_, err := state.run("COMMAND\n\n", 1, func() {
+	defer state.shell.close()
+	_, err := state.run("COMMAND\n\n", func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_0__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_0__"))
 	})
@@ -97,7 +115,8 @@ func TestShellReturnsNoErrorOnRunningCommand(test *testing.T) {
 
 func TestShellReturnsExitStatus(test *testing.T) {
 	state := newTestShellState(0)
-	status, _ := state.run("COMMAND\n\n", 1, func() {
+	defer state.shell.close()
+	status, _ := state.run("COMMAND\n\n", func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 	})
@@ -107,7 +126,8 @@ func TestShellReturnsExitStatus(test *testing.T) {
 
 func TestShellSendsStdErrToHandler(test *testing.T) {
 	state := newTestShellState(0)
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stderr.Write([]byte("MSG"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_0__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_0__"))
@@ -118,7 +138,8 @@ func TestShellSendsStdErrToHandler(test *testing.T) {
 
 func TestShellSendsStdOutToHandler(test *testing.T) {
 	state := newTestShellState(0)
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stdout.Write([]byte("MSG"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_0__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_0__"))
@@ -129,7 +150,8 @@ func TestShellSendsStdOutToHandler(test *testing.T) {
 
 func TestShellConcatsStdOutMessages(test *testing.T) {
 	state := newTestShellState(0)
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stdout.Write([]byte("MSG1"))
 		state.stdout.Write([]byte("MSG2"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_0__"))
@@ -139,9 +161,10 @@ func TestShellConcatsStdOutMessages(test *testing.T) {
 	assert.Equal(test, "OUT: MSG1MSG2", state.args[0])
 }
 
-func TestSendsTwoStdOutMessagesToHandler(test *testing.T) {
+func TestShellSendsTwoStdOutMessagesToHandler(test *testing.T) {
 	state := newTestShellState(0)
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stdout.Write([]byte("MSG1\nMSG2\n__SHELL_EXIT_STATUS_0__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_0__"))
 	})
@@ -149,9 +172,10 @@ func TestSendsTwoStdOutMessagesToHandler(test *testing.T) {
 	assert.Equal(test, "OUT: MSG2", state.args[1])
 }
 
-func TestDetectsStatusFromTwoDifferentMessages(test *testing.T) {
+func TestShellDetectsStatusFromTwoDifferentMessages(test *testing.T) {
 	state := newTestShellState(0)
-	status, _ := state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	status, _ := state.run("COMMAND", func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_"))
 		state.stdout.Write([]byte("1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_"))
@@ -161,9 +185,10 @@ func TestDetectsStatusFromTwoDifferentMessages(test *testing.T) {
 	assert.Equal(test, 1, status)
 }
 
-func TestIgnoresStuffInStdOutAfterComplete(test *testing.T) {
+func TestShellIgnoresStuffInStdOutAfterComplete(test *testing.T) {
 	state := newTestShellState(0)
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stdout.Write([]byte("TEST\n"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
@@ -172,9 +197,10 @@ func TestIgnoresStuffInStdOutAfterComplete(test *testing.T) {
 	assert.Equal(test, 0, len(state.args))
 }
 
-func TestIgnoresStuffInStdErrAfterComplete(test *testing.T) {
+func TestShellIgnoresStuffInStdErrAfterComplete(test *testing.T) {
 	state := newTestShellState(0)
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("TEST\n"))
@@ -183,9 +209,10 @@ func TestIgnoresStuffInStdErrAfterComplete(test *testing.T) {
 	assert.Equal(test, 0, len(state.args))
 }
 
-func TestLimitsEachLineToLimit(test *testing.T) {
+func TestShellLimitsEachLineToLimit(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
-	state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND", func() {
 		state.stdout.Write([]byte("MESSAGE1"))
 		state.stdout.Write([]byte("MESSAGE2"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
@@ -195,15 +222,16 @@ func TestLimitsEachLineToLimit(test *testing.T) {
 	assert.Equal(test, "OUT: MESSAGE2", state.args[0])
 }
 
-func TestRunsTwoCommands(test *testing.T) {
+func TestShellRunsTwoCommands(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
-	state.run("COMMAND1", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND1", func() {
 		state.stdout.Write([]byte("MESSAGE1"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 	})
 
-	state.run("COMMAND2", 1, func() {
+	state.run("COMMAND2", func() {
 		state.stdout.Write([]byte("MESSAGE2"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
@@ -212,15 +240,16 @@ func TestRunsTwoCommands(test *testing.T) {
 	assert.Equal(test, 2, len(state.args))
 }
 
-func TestReceivesStdErrAfterStdOut(test *testing.T) {
+func TestShellReceivesStdErrAfterStdOut(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
-	state.run("COMMAND1", 1, func() {
+	defer state.shell.close()
+	state.run("COMMAND1", func() {
 		state.stdout.Write([]byte("MESSAGE1"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 	})
 
-	state.run("COMMAND2", 1, func() {
+	state.run("COMMAND2", func() {
 		state.stderr.Write([]byte("MESSAGE2"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))
@@ -229,27 +258,30 @@ func TestReceivesStdErrAfterStdOut(test *testing.T) {
 	assert.Equal(test, "ERR: MESSAGE2", state.args[1])
 }
 
-func TestReturnsErrorOnStdOutError(test *testing.T) {
+func TestShellReturnsErrorOnStdOutError(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
-	_, err := state.run("COMMAND", 1, func() {
-		state.stdout.Close()
+	defer state.shell.close()
+	_, err := state.run("COMMAND", func() {
+		state.stdout.(*io.PipeWriter).CloseWithError(errors.New("ERROR"))
 	})
 
 	assert.Error(test, err)
 }
 
-func TestReturnsErrorOnStdErrError(test *testing.T) {
+func TestShellReturnsErrorOnStdErrError(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
-	_, err := state.run("COMMAND", 1, func() {
-		state.stderr.Close()
+	defer state.shell.close()
+	_, err := state.run("COMMAND", func() {
+		state.stderr.(*io.PipeWriter).CloseWithError(errors.New("ERROR"))
 	})
 
 	assert.Error(test, err)
 }
 
-func TestReturnsErrorOnUnknownStatus(test *testing.T) {
+func TestShellReturnsErrorOnUnknownStatus(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
-	_, err := state.run("COMMAND", 1, func() {
+	defer state.shell.close()
+	_, err := state.run("COMMAND", func() {
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_WRONG__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_WRONG__"))
 	})
@@ -257,10 +289,11 @@ func TestReturnsErrorOnUnknownStatus(test *testing.T) {
 	assert.Error(test, err)
 }
 
-func TestReturnsErrorIfHandlerReturnsError(test *testing.T) {
+func TestShellReturnsErrorIfHandlerReturnsError(test *testing.T) {
 	state := newTestShellState(len("MESSAGE1"))
+	defer state.shell.close()
 	state.err = errors.New("TEST")
-	_, err := state.run("COMMAND", 1, func() {
+	_, err := state.run("COMMAND", func() {
 		state.stdout.Write([]byte("TEST"))
 		state.stdout.Write([]byte("__SHELL_EXIT_STATUS_1__"))
 		state.stderr.Write([]byte("__SHELL_EXIT_STATUS_1__"))

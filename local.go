@@ -6,8 +6,8 @@ type LocalConfig struct {
 	LineLimit int
 }
 
-func NewLocal(config LocalConfig) (Local, error) {
-	shell := Local{command: exec.Command("/bin/sh")}
+func NewLocal(config LocalConfig) (*Local, error) {
+	shell := &Local{command: exec.Command("/bin/sh")}
 	shell.limit = config.LineLimit
 	shell.messages = make(chan message, 4096)
 
@@ -43,6 +43,6 @@ type Local struct {
 	command *exec.Cmd
 }
 
-func (shell Local) Close() error {
+func (shell *Local) Close() error {
 	return shell.close()
 }
