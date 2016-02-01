@@ -48,7 +48,7 @@ func getTestRemoteConfig() RemoteConfig {
 	auth := []ssh.AuthMethod{ssh.PublicKeys(key)}
 
 	return RemoteConfig{
-		Address: "ssh.shell.local",
+		Address: "root@ssh.shell.local",
 		// Address: "172.17.0.2", // use plain ip address for local testing
 		Auth: auth,
 	}

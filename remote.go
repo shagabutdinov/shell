@@ -29,7 +29,7 @@ func NewRemote(config RemoteConfig) (*Remote, error) {
 	address := config.Address
 	user := "root"
 	if strings.Contains(address, "@") {
-		parts := strings.Split("@", config.Address)
+		parts := strings.Split(config.Address, "@")
 		user = parts[0]
 		address = parts[1]
 	}
