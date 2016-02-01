@@ -38,7 +38,7 @@ Usage
 Define message processor handler:
 
 ```
-ensure := func(error err) {
+verify := func(error err) {
     if(err != nil) {
         panic(err)
     }
@@ -46,9 +46,9 @@ ensure := func(error err) {
 
 handler := func(outputType int, message string) {
     if(outputType == shell.Stdout) {
-      log.Println("stdout: ", message)
+        log.Println("stdout: ", message)
     } else if(outputType == shell.Stdout) {
-      log.Println("stderr: ", message)
+        log.Println("stderr: ", message)
     }
 }
 ```
@@ -57,19 +57,19 @@ Run commands locally:
 
 ```
 shell, err = shell.NewLocal(shell.LocalConfig{})
-ensure(err)
+verify(err)
 
 _, err := shell.Run("echo TEST 1>2", handler)
-ensure(err)
+verify(err)
 
 _, err := shell.Run("cd /var/lib", handler)
-ensure(err)
+verify(err)
 
 _, err := shell.Run(`echo "current path is: $(pwd)"`, handler)
-ensure(err)
+verify(err)
 
 status, err := shell.Run("/bin/false", handler)
-ensure(err)
+verify(err)
 log.Println("execution status is ", status) // execution status is 1
 ```
 
@@ -77,27 +77,26 @@ Run commands remotelly:
 
 ```
 key, err := ssh.ParsePrivateKey([]byte(YOUR_PRIVATE_KEY))
-ensure(err)
+verify(err)
 
-auth := []ssh.AuthMethod{ssh.PublicKeys(key)}
-shell = shell.NewRemote(shell.RemoteConfig{
-  Host: "root@example.com:22",
-  Auth: auth,
+shell, err := shell.NewRemote(shell.RemoteConfig{
+    Host: "root@example.com:22",
+    Auth: []ssh.AuthMethod{ssh.PublicKeys(key)},
 })
 
-ensure(err)
+verify(err)
 
 _, err := shell.Run("cat /etc/hostname", handler)
-ensure(err)
+verify(err)
 
 _, err := shell.Run("cd /var/lib", handler)
-ensure(err)
+verify(err)
 
 _, err := shell.Run(`echo "current path is: $(pwd)"`, handler)
-ensure(err)
+verify(err)
 
 status, err := shell.Run("/bin/false", handler)
-ensure(err)
+verify(err)
 log.Println("execution status is ", status) // execution status is 1
 ```
 
